@@ -661,7 +661,7 @@ fn execute_without_results() {
     let mut connection = initialize();
 
     assert!(connection
-        .execute_without_results("CREATE (n1) CREATE (n2) RETURN n1, n2;")
+        .execute_without_results("CREATE (n1) CREATE (n2) RETURN n1, n2;", None)
         .is_ok());
     assert_eq!(ConnectionStatus::Ready, connection.status());
 

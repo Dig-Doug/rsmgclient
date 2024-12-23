@@ -392,12 +392,21 @@ impl Connection {
     }
 
     /// Fully Executes provided query but doesn't return any results even if they exist.
-    pub fn execute_without_results(&mut self, query: &str) -> Result<(), MgError> {
+    /// TODO use <S: AsRef<str>>
+    pub fn execute_without_results(
+        &mut self,
+        query: &str,
+        params: Option<&HashMap<String, QueryParam>>,
+    ) -> Result<(), MgError> {
+        let mg_params = match params {
+            Some(x) => hash_map_to_mg_map(x),
+            None => std::ptr::null_mut(),
+        };
         match unsafe {
             bindings::mg_session_run(
                 self.mg_session,
                 str_to_c_str(query),
-                std::ptr::null(),
+                mg_params,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -479,7 +488,7 @@ impl Connection {
         }
 
         if !self.autocommit && self.status == ConnectionStatus::Ready {
-            match self.execute_without_results("BEGIN") {
+            match self.execute_without_results("BEGIN", None) {
                 Ok(()) => self.status = ConnectionStatus::InTransaction,
                 Err(err) => return Err(err),
             }
@@ -818,7 +827,7 @@ impl Connection {
             return Ok(());
         }
 
-        match self.execute_without_results("COMMIT") {
+        match self.execute_without_results("COMMIT", None) {
             Ok(()) => {
                 self.status = ConnectionStatus::Ready;
                 Ok(())
@@ -862,7 +871,7 @@ impl Connection {
             return Ok(());
         }
 
-        match self.execute_without_results("ROLLBACK") {
+        match self.execute_without_results("ROLLBACK", None) {
             Ok(()) => {
                 self.status = ConnectionStatus::Ready;
                 Ok(())

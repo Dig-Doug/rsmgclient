@@ -13,21 +13,18 @@
 // limitations under the License.
 
 use std::fmt;
+use thiserror::Error;
 
 /// Error returned by using connection.
-#[derive(Debug)]
-pub struct MgError {
-    message: String,
-}
-
-impl fmt::Display for MgError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
+#[derive(Error, Debug)]
+pub enum MgError {
+    #[error("{message}")]
+    Generic { message: String },
 }
 
 impl MgError {
+    // TODO: Consider deprecating in favor of typed errors
     pub fn new(message: String) -> MgError {
-        MgError { message }
+        MgError::Generic { message }
     }
 }

@@ -12,6 +12,7 @@ fn execute_query() -> Result<(), MgError> {
     connection.execute_without_results(
         "CREATE (p1:Person {name: 'Alice'})-[l1:Likes]->(m:Software {name: 'Memgraph'}) \
          CREATE (p2:Person {name: 'John'})-[l2:Likes]->(m);",
+        None,
     )?;
 
     // Fetch the graph.

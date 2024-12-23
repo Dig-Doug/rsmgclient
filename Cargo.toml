@@ -18,6 +18,7 @@ exclude = [
 [dependencies]
 maplit = "1.0.2"
 chrono = "0.4.19"
+thiserror = "^2.0"
 
 [dev-dependencies]
 libc = "0.2"
