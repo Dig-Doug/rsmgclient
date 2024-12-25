@@ -93,11 +93,15 @@ fn build_mgclient_macos() -> PathBuf {
             println!("Proceeding with installation assuming Homebrew is your package manager");
         }
         let path_openssl = if cfg!(target_arch = "aarch64") {
-            "/opt/homebrew/Cellar/openssl@1.1"
+            "/opt/homebrew/Cellar/openssl@3"
         } else {
-            "/usr/local/Cellar/openssl@1.1"
+            "/usr/local/Cellar/openssl@3"
         };
-        let mut openssl_dirs = std::fs::read_dir(PathBuf::new().join(path_openssl))
+        let openssl_path = PathBuf::from(path_openssl);
+        if !openssl_path.exists() {
+            panic!("openssl@3 is not installed");
+        }
+        let mut openssl_dirs = std::fs::read_dir(openssl_path)
             .unwrap()
             .map(|r| r.unwrap().path())
             .collect::<Vec<PathBuf>>();

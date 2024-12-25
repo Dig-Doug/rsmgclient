@@ -393,9 +393,9 @@ impl Connection {
 
     /// Fully Executes provided query but doesn't return any results even if they exist.
     /// TODO use <S: AsRef<str>>
-    pub fn execute_without_results(
+    pub fn execute_without_results<S: AsRef<str>>(
         &mut self,
-        query: &str,
+        query: S,
         params: Option<&HashMap<String, QueryParam>>,
     ) -> Result<(), MgError> {
         let mg_params = match params {
@@ -405,7 +405,7 @@ impl Connection {
         match unsafe {
             bindings::mg_session_run(
                 self.mg_session,
-                str_to_c_str(query),
+                str_to_c_str(query.as_ref()),
                 mg_params,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -457,9 +457,9 @@ impl Connection {
     ///
     /// If connection is not lazy will also fetch and store all records. If connection has
     /// autocommit set to false and is not in a transaction will also start a transaction.
-    pub fn execute(
+    pub fn execute<Q: AsRef<str>>(
         &mut self,
-        query: &str,
+        query: Q,
         params: Option<&HashMap<String, QueryParam>>,
     ) -> Result<Vec<String>, MgError> {
         match self.status {
@@ -496,7 +496,7 @@ impl Connection {
 
         self.summary = None;
 
-        let c_query = CString::new(query).unwrap();
+        let c_query = CString::new(query.as_ref()).unwrap();
         let mg_params = match params {
             Some(x) => hash_map_to_mg_map(x),
             None => std::ptr::null_mut(),
