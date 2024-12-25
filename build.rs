@@ -14,10 +14,14 @@
 
 extern crate bindgen;
 
+use anyhow::anyhow;
 use cmake::Config;
+use flate2::read::GzDecoder;
 use std::env;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tar::Archive;
 
 #[derive(PartialEq)]
 enum HostType {
@@ -30,7 +34,7 @@ enum HostType {
 // NOTE: The code here is equivalent to [rust-openssl](https://github.com/sfackler/rust-openssl).
 // NOTE: We have to build mgclient and link the rust binary with the same SSL and Crypto libs.
 
-fn build_mgclient_macos() -> PathBuf {
+fn build_mgclient_macos(mgclient_dir: &PathBuf) -> PathBuf {
     println!("MacOS detected. We will check if you have either the MacPorts or Homebrew package managers.");
     println!("Checking for MacPorts...");
     let output = Command::new("/usr/bin/command")
@@ -73,7 +77,7 @@ fn build_mgclient_macos() -> PathBuf {
         // With MacPorts, you don't need to pass in the OPENSSL_ROOT_DIR,
         // OPENSSL_CRYPTO_LIBRARY, and OPENSSL_SSL_LIBRARY options to CMake, PkgConfig
         // should take care of setting those variables.
-        Config::new("mgclient").build()
+        Config::new(mgclient_dir).build()
     } else {
         println!("Macports not found.");
         println!("Checking for Homebrew...");
@@ -116,7 +120,7 @@ fn build_mgclient_macos() -> PathBuf {
             openssl_root_path.join("lib").display()
         );
         let openssl_root = openssl_dirs[0].clone();
-        Config::new("mgclient")
+        Config::new(mgclient_dir)
             .define("OPENSSL_ROOT_DIR", format!("{}", openssl_root.display()))
             .define(
                 "OPENSSL_CRYPTO_LIBRARY",
@@ -136,17 +140,17 @@ fn build_mgclient_macos() -> PathBuf {
     }
 }
 
-fn build_mgclient_linux() -> PathBuf {
-    Config::new("mgclient").build()
+fn build_mgclient_linux(mg_client_dir: &PathBuf) -> PathBuf {
+    Config::new(mg_client_dir).build()
 }
 
-fn build_mgclient_windows() -> PathBuf {
+fn build_mgclient_windows(mg_client_dir: &PathBuf) -> PathBuf {
     let openssl_dir = PathBuf::from(
         std::env::var("OPENSSL_LIB_DIR")
             .unwrap_or_else(|_| "C:\\Program Files\\OpenSSL-Win64\\lib".to_string()),
     );
     println!("cargo:rustc-link-search=native={}", openssl_dir.display());
-    Config::new("mgclient")
+    Config::new(mg_client_dir)
         .define("OPENSSL_ROOT_DIR", format!("{}", openssl_dir.display()))
         .build()
 }
@@ -162,18 +166,18 @@ fn main() {
         HostType::Unknown
     };
 
-    let mgclient = PathBuf::new().join("mgclient");
+    let mg_client_dir = download_and_unpack_c_client().unwrap();
     let mgclient_out = match host_type {
-        HostType::Windows => build_mgclient_windows(),
-        HostType::MacOS => build_mgclient_macos(),
-        HostType::Linux => build_mgclient_linux(),
+        HostType::Windows => build_mgclient_windows(&mg_client_dir),
+        HostType::MacOS => build_mgclient_macos(&mg_client_dir),
+        HostType::Linux => build_mgclient_linux(&mg_client_dir),
         HostType::Unknown => panic!("Unknown operating system"),
     };
 
     let mgclient_h = mgclient_out.join("include").join("mgclient.h");
     let mgclient_export_h = mgclient_out.join("include").join("mgclient-export.h");
     // Required because of tests that rely on the C struct fields.
-    let mgclient_mgvalue_h = mgclient.join("src").join("mgvalue.h");
+    let mgclient_mgvalue_h = mg_client_dir.join("src").join("mgvalue.h");
     println!("cargo:rerun-if-changed={}", mgclient_h.display());
     println!("cargo:rerun-if-changed={}", mgclient_export_h.display());
     let bindings = bindgen::Builder::default()
@@ -216,4 +220,19 @@ fn main() {
         }
         HostType::Unknown => panic!("Unknown operating system"),
     }
+}
+
+fn download_and_unpack_c_client() -> Result<PathBuf, anyhow::Error> {
+    let repo_name = "mgclient";
+    let commit = "d57df8aba5d62074c56aced591147e2b2616c4dc";
+    let resp = reqwest::blocking::get(format!(
+        "https://github.com/memgraph/{}/archive/{}.tar.gz",
+        repo_name, commit
+    ))?;
+    let tar_data = GzDecoder::new(resp);
+    let mut archive = Archive::new(tar_data);
+    let out_dir = env::var_os("OUT_DIR").ok_or(anyhow!("Failed to get OUT_DIR"))?;
+    let archive_dir = PathBuf::from(out_dir).join("mgclient");
+    archive.unpack(&archive_dir)?;
+    Ok(archive_dir.join(format!("{}-{}", repo_name, commit)))
 }
