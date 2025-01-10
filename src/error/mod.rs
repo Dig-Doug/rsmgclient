@@ -22,7 +22,10 @@ pub enum MgError {
     #[error("{message}")]
     Generic { message: String },
     #[error("Failed to convert value {value} into {typename}")]
-    ConversionError { value: Value, typename: &'static str },
+    ConversionError {
+        value: Value,
+        typename: &'static str,
+    },
     #[error("Record does not have exactly 1 value")]
     RecordConversionError,
 }
