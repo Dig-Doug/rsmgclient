@@ -18,7 +18,6 @@ use anyhow::anyhow;
 use cmake::Config;
 use flate2::read::GzDecoder;
 use std::env;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tar::Archive;

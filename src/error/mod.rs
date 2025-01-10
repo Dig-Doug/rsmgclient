@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::Value;
 use std::fmt;
 use thiserror::Error;
 
@@ -20,6 +21,10 @@ use thiserror::Error;
 pub enum MgError {
     #[error("{message}")]
     Generic { message: String },
+    #[error("Failed to convert value {value} into {typename}")]
+    ConversionError { value: Value, typename: &'static str },
+    #[error("Record does not have exactly 1 value")]
+    RecordConversionError,
 }
 
 impl MgError {

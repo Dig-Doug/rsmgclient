@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::bindings;
+use super::{bindings, MgError};
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::ffi::{CStr, CString};
 use std::fmt;
 use std::fmt::Formatter;
@@ -142,9 +142,201 @@ pub enum Value {
     Path(Path),
 }
 
+trait ConversionError: Sized {
+    fn conversion_error(value: Value) -> Result<Self, MgError>;
+}
+
+impl<T> ConversionError for T
+where
+    T: TryFrom<Value>,
+{
+    fn conversion_error(value: Value) -> Result<T, MgError> {
+        Err(MgError::ConversionError {
+            value,
+            typename: std::any::type_name::<Self>(),
+        })
+    }
+}
+
+impl TryFrom<Value> for String {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::String(s) => Ok(s),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for NaiveDate {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Date(d) => Ok(d),
+            Value::LocalDateTime(dt) => Ok(dt.date()),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Int(i) => Ok(i),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for Node {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Node(n) => Ok(n),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl<T> TryFrom<Value> for Vec<T>
+where
+    T: TryFrom<Value, Error = MgError>,
+{
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::List(l) => l.into_iter().map(|v| v.try_into()).collect(),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl<T> TryFrom<Value> for HashMap<String, T>
+where
+    T: TryFrom<Value, Error = MgError>,
+{
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Map(m) => m
+                .into_iter()
+                .map(|(k, v)| v.try_into().map(|v| (k, v)))
+                .collect(),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+// TODO(Dig-Doug): Implement for all types using generics. I feel like this is possible, but my generic-fu is not good enough to figure out the syntax.
+impl TryFrom<Value> for Option<String> {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Null => Ok(None),
+            _ => value.try_into().map(|s| Some(s)),
+        }
+    }
+}
+
+impl TryFrom<Value> for Option<NaiveDate> {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Null => Ok(None),
+            _ => value.try_into().map(|d| Some(d)),
+        }
+    }
+}
+
+impl TryFrom<Value> for Option<i64> {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Null => Ok(None),
+            _ => value.try_into().map(|i| Some(i)),
+        }
+    }
+}
+
+impl TryFrom<Value> for Option<Node> {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Null => Ok(None),
+            _ => value.try_into().map(|n| Some(n)),
+        }
+    }
+}
+
 /// Representation of a single row returned by database.
 pub struct Record {
     pub values: Vec<Value>,
+}
+
+impl TryFrom<Record> for Value {
+    type Error = MgError;
+
+    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
+        if record.values.len() != 1 {
+            return Err(MgError::RecordConversionError);
+        }
+        Ok(record.values.remove(0))
+    }
+}
+
+impl TryFrom<Record> for (Value, Value) {
+    type Error = MgError;
+
+    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
+        if record.values.len() != 2 {
+            return Err(MgError::RecordConversionError);
+        }
+        Ok((record.values.remove(0), record.values.remove(0)))
+    }
+}
+
+impl TryFrom<Record> for (Value, Value, Value, Value) {
+    type Error = MgError;
+
+    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
+        if record.values.len() != 4 {
+            return Err(MgError::RecordConversionError);
+        }
+        Ok((
+            record.values.remove(0),
+            record.values.remove(0),
+            record.values.remove(0),
+            record.values.remove(0),
+        ))
+    }
+}
+
+impl TryFrom<Record> for (Value, Value, Value, Value, Value) {
+    type Error = MgError;
+
+    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
+        if record.values.len() != 5 {
+            return Err(MgError::RecordConversionError);
+        }
+        Ok((
+            record.values.remove(0),
+            record.values.remove(0),
+            record.values.remove(0),
+            record.values.remove(0),
+            record.values.remove(0),
+        ))
+    }
 }
 
 fn mg_value_list_to_vec(mg_value: *const bindings::mg_value) -> Vec<Value> {
