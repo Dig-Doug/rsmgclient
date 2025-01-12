@@ -28,6 +28,8 @@ pub enum MgError {
     },
     #[error("Record does not have exactly 1 value")]
     RecordConversionError,
+    #[error("Infallible should never happen, required for TryFrom impls")]
+    Infallible(#[from] std::convert::Infallible),
 }
 
 impl MgError {

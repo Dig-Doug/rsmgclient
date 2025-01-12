@@ -38,6 +38,102 @@ pub enum QueryParam {
     Map(HashMap<String, QueryParam>),
 }
 
+impl From<bool> for QueryParam {
+    fn from(x: bool) -> Self {
+        QueryParam::Bool(x)
+    }
+}
+
+impl From<i64> for QueryParam {
+    fn from(x: i64) -> Self {
+        QueryParam::Int(x)
+    }
+}
+
+impl From<f64> for QueryParam {
+    fn from(x: f64) -> Self {
+        QueryParam::Float(x)
+    }
+}
+
+impl From<&str> for QueryParam {
+    fn from(x: &str) -> Self {
+        QueryParam::String(x.to_string())
+    }
+}
+
+impl From<String> for QueryParam {
+    fn from(x: String) -> Self {
+        QueryParam::String(x)
+    }
+}
+
+impl From<NaiveDate> for QueryParam {
+    fn from(x: NaiveDate) -> Self {
+        QueryParam::Date(x)
+    }
+}
+
+impl From<NaiveTime> for QueryParam {
+    fn from(x: NaiveTime) -> Self {
+        QueryParam::LocalTime(x)
+    }
+}
+
+impl From<NaiveDateTime> for QueryParam {
+    fn from(x: NaiveDateTime) -> Self {
+        QueryParam::LocalDateTime(x)
+    }
+}
+
+impl From<Duration> for QueryParam {
+    fn from(x: Duration) -> Self {
+        QueryParam::Duration(x)
+    }
+}
+
+impl From<Vec<QueryParam>> for QueryParam {
+    fn from(x: Vec<QueryParam>) -> Self {
+        QueryParam::List(x)
+    }
+}
+
+impl From<HashMap<String, QueryParam>> for QueryParam {
+    fn from(x: HashMap<String, QueryParam>) -> Self {
+        QueryParam::Map(x)
+    }
+}
+
+impl TryFrom<Value> for QueryParam {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Ok(match value {
+            Value::Null => QueryParam::Null,
+            Value::Bool(x) => QueryParam::Bool(x),
+            Value::Int(x) => QueryParam::Int(x),
+            Value::Float(x) => QueryParam::Float(x),
+            Value::String(x) => QueryParam::String(x),
+            Value::Date(x) => QueryParam::Date(x),
+            Value::LocalTime(x) => QueryParam::LocalTime(x),
+            Value::LocalDateTime(x) => QueryParam::LocalDateTime(x),
+            Value::Duration(x) => QueryParam::Duration(x),
+            Value::List(x) => {
+                let params: Result<Vec<_>, _> = x.into_iter().map(|v| v.try_into()).collect();
+                QueryParam::List(params?)
+            }
+            Value::Map(x) => {
+                let params: Result<HashMap<_, _>, _> = x
+                    .into_iter()
+                    .map(|(k, v)| v.try_into().map(|v| (k, v)))
+                    .collect();
+                QueryParam::Map(params?)
+            }
+            _ => Self::conversion_error(value)?,
+        })
+    }
+}
+
 impl QueryParam {
     fn to_c_mg_value(&self) -> *mut bindings::mg_value {
         unsafe {
@@ -143,20 +239,15 @@ pub enum Value {
 }
 
 trait ConversionError: Sized {
-    fn conversion_error(value: Value) -> Result<Self, MgError>;
-}
-
-impl<T> ConversionError for T
-where
-    T: TryFrom<Value>,
-{
-    fn conversion_error(value: Value) -> Result<T, MgError> {
+    fn conversion_error(value: Value) -> Result<Self, MgError> {
         Err(MgError::ConversionError {
             value,
             typename: std::any::type_name::<Self>(),
         })
     }
 }
+
+impl<T> ConversionError for T where T: TryFrom<Value> {}
 
 impl TryFrom<Value> for String {
     type Error = MgError;
@@ -176,6 +267,17 @@ impl TryFrom<Value> for NaiveDate {
         match value {
             Value::Date(d) => Ok(d),
             Value::LocalDateTime(dt) => Ok(dt.date()),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for NaiveDateTime {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::LocalDateTime(dt) => Ok(dt),
             _ => Self::conversion_error(value),
         }
     }
@@ -203,19 +305,103 @@ impl TryFrom<Value> for Node {
     }
 }
 
-impl<T> TryFrom<Value> for Vec<T>
+impl TryFrom<Value> for Relationship {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Relationship(r) => Ok(r),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl<T, E> TryFrom<Value> for Vec<T>
 where
-    T: TryFrom<Value, Error = MgError>,
+    T: TryFrom<Value, Error = E>,
+    MgError: From<E>,
 {
     type Error = MgError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::List(l) => l.into_iter().map(|v| v.try_into()).collect(),
+            Value::List(l) => l
+                .into_iter()
+                .map(|v| v.try_into().map_err(|e: E| -> MgError { e.into() }))
+                .collect(),
             _ => Self::conversion_error(value),
         }
     }
 }
+
+/*
+impl<A, AE, B, BE> TryFrom<Value> for (A, B)
+where
+    A: TryFrom<Value, Error = AE>,
+    MgError: From<AE>,
+    B: TryFrom<Value, Error = BE>,
+    MgError: From<BE>,
+{
+    type Error = MgError;
+
+    fn try_from(mut value: Value) -> Result<Self, Self::Error> {
+        let mut values: Vec<Value> = match value {
+            Value::List(l) => l,
+            _ => return Self::conversion_error(value),
+        };
+        if values.len() != 2 {
+            return Err(MgError::RecordConversionError);
+        }
+        Ok((values.remove(0).try_into()?, values.remove(0).try_into()?))
+    }
+}
+ */
+
+macro_rules! replace_expr {
+    ($_t:tt $sub:expr) => {
+        $sub
+    };
+}
+
+macro_rules! value_tuple_impls {
+    ( $head:ident, $head_error:ident, $( $tail:ident, $tail_error:ident,)* ) => {
+        impl<$head, $head_error, $( $tail, $tail_error ),*> TryFrom<Value> for ($head, $( $tail ),*)
+        where
+            $head: TryFrom<Value, Error=$head_error>,
+            MgError: From<$head_error>,
+            $( $tail: TryFrom<Value, Error=$tail_error>, MgError: From<$tail_error> ),*
+        {
+            type Error = MgError;
+
+            fn try_from(mut value: Value) -> Result<Self, Self::Error> {
+                let mut values: Vec<Value> = match value {
+                    Value::List(l) => l,
+                    _ => return Self::conversion_error(value),
+                };
+                if values.len() != [1, $(
+                      replace_expr!{($tail) 1
+                      }
+                    ),*].len() {
+                    return Err(MgError::RecordConversionError);
+                }
+                Ok(
+                    (values.remove(0).try_into()?,
+                    $(
+                      replace_expr!{($tail) values.remove(0).try_into()?
+                      }
+                    ),*
+                    )
+                )
+            }
+        }
+
+        value_tuple_impls!($( $tail, $tail_error, )*);
+    };
+
+    () => {};
+}
+
+value_tuple_impls!(A, AE, B, BE, C, CE, D, DE, E, EE, F, FE,);
 
 impl<T> TryFrom<Value> for HashMap<String, T>
 where
@@ -295,49 +481,41 @@ impl TryFrom<Record> for Value {
     }
 }
 
-impl TryFrom<Record> for (Value, Value) {
-    type Error = MgError;
+macro_rules! record_tuple_impls {
+    ( $head:ident, $head_error:ident, $( $tail:ident, $tail_error:ident,)* ) => {
+        impl<$head, $head_error, $( $tail, $tail_error ),*> TryFrom<Record> for ($head, $( $tail ),*)
+        where
+            $head: TryFrom<Value, Error=$head_error>,
+            MgError: From<$head_error>,
+            $( $tail: TryFrom<Value, Error=$tail_error>, MgError: From<$tail_error> ),*
+        {
+            type Error = MgError;
 
-    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
-        if record.values.len() != 2 {
-            return Err(MgError::RecordConversionError);
+            fn try_from(mut record: Record) -> Result<Self, Self::Error> {
+                if record.values.len() != [1, $(
+                      replace_expr!{($tail) 1
+                      }
+                    ),*].len() {
+                    return Err(MgError::RecordConversionError);
+                }
+                Ok(
+                    (record.values.remove(0).try_into()?,
+                    $(
+                      replace_expr!{($tail) record.values.remove(0).try_into()?
+                      }
+                    ),*
+                    )
+                )
+            }
         }
-        Ok((record.values.remove(0), record.values.remove(0)))
-    }
+
+        record_tuple_impls!($( $tail, $tail_error, )*);
+    };
+
+    () => {};
 }
 
-impl TryFrom<Record> for (Value, Value, Value, Value) {
-    type Error = MgError;
-
-    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
-        if record.values.len() != 4 {
-            return Err(MgError::RecordConversionError);
-        }
-        Ok((
-            record.values.remove(0),
-            record.values.remove(0),
-            record.values.remove(0),
-            record.values.remove(0),
-        ))
-    }
-}
-
-impl TryFrom<Record> for (Value, Value, Value, Value, Value) {
-    type Error = MgError;
-
-    fn try_from(mut record: Record) -> Result<Self, Self::Error> {
-        if record.values.len() != 5 {
-            return Err(MgError::RecordConversionError);
-        }
-        Ok((
-            record.values.remove(0),
-            record.values.remove(0),
-            record.values.remove(0),
-            record.values.remove(0),
-            record.values.remove(0),
-        ))
-    }
-}
+record_tuple_impls!(A, AE, B, BE, C, CE, D, DE, E, EE, F, FE,);
 
 fn mg_value_list_to_vec(mg_value: *const bindings::mg_value) -> Vec<Value> {
     unsafe {
