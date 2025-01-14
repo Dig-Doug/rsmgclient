@@ -249,6 +249,39 @@ trait ConversionError: Sized {
 
 impl<T> ConversionError for T where T: TryFrom<Value> {}
 
+impl TryFrom<Value> for bool {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Bool(b) => Ok(b),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Int(i) => Ok(i),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for f64 {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Float(f) => Ok(f),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
 impl TryFrom<Value> for String {
     type Error = MgError;
 
@@ -272,6 +305,17 @@ impl TryFrom<Value> for NaiveDate {
     }
 }
 
+impl TryFrom<Value> for NaiveTime {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::LocalTime(t) => Ok(t),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
 impl TryFrom<Value> for NaiveDateTime {
     type Error = MgError;
 
@@ -283,12 +327,12 @@ impl TryFrom<Value> for NaiveDateTime {
     }
 }
 
-impl TryFrom<Value> for i64 {
+impl TryFrom<Value> for Duration {
     type Error = MgError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::Int(i) => Ok(i),
+            Value::Duration(d) => Ok(d),
             _ => Self::conversion_error(value),
         }
     }
@@ -316,6 +360,28 @@ impl TryFrom<Value> for Relationship {
     }
 }
 
+impl TryFrom<Value> for UnboundRelationship {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::UnboundRelationship(r) => Ok(r),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
+impl TryFrom<Value> for Path {
+    type Error = MgError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Path(p) => Ok(p),
+            _ => Self::conversion_error(value),
+        }
+    }
+}
+
 impl<T, E> TryFrom<Value> for Vec<T>
 where
     T: TryFrom<Value, Error = E>,
@@ -333,29 +399,6 @@ where
         }
     }
 }
-
-/*
-impl<A, AE, B, BE> TryFrom<Value> for (A, B)
-where
-    A: TryFrom<Value, Error = AE>,
-    MgError: From<AE>,
-    B: TryFrom<Value, Error = BE>,
-    MgError: From<BE>,
-{
-    type Error = MgError;
-
-    fn try_from(mut value: Value) -> Result<Self, Self::Error> {
-        let mut values: Vec<Value> = match value {
-            Value::List(l) => l,
-            _ => return Self::conversion_error(value),
-        };
-        if values.len() != 2 {
-            return Err(MgError::RecordConversionError);
-        }
-        Ok((values.remove(0).try_into()?, values.remove(0).try_into()?))
-    }
-}
- */
 
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
@@ -421,49 +464,35 @@ where
 }
 
 // TODO(Dig-Doug): Implement for all types using generics. I feel like this is possible, but my generic-fu is not good enough to figure out the syntax.
-impl TryFrom<Value> for Option<String> {
-    type Error = MgError;
+macro_rules! try_from_option_impl {
+    ( $t:ident ) => {
+        impl TryFrom<Value> for Option<$t> {
+            type Error = MgError;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        match value {
-            Value::Null => Ok(None),
-            _ => value.try_into().map(|s| Some(s)),
+            fn try_from(mut value: Value) -> Result<Self, Self::Error> {
+                match value {
+                    Value::Null => Ok(None),
+                    _ => value.try_into().map(|s| Some(s)),
+                }
+            }
         }
-    }
+    };
 }
 
-impl TryFrom<Value> for Option<NaiveDate> {
-    type Error = MgError;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        match value {
-            Value::Null => Ok(None),
-            _ => value.try_into().map(|d| Some(d)),
-        }
-    }
-}
-
-impl TryFrom<Value> for Option<i64> {
-    type Error = MgError;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        match value {
-            Value::Null => Ok(None),
-            _ => value.try_into().map(|i| Some(i)),
-        }
-    }
-}
-
-impl TryFrom<Value> for Option<Node> {
-    type Error = MgError;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        match value {
-            Value::Null => Ok(None),
-            _ => value.try_into().map(|n| Some(n)),
-        }
-    }
-}
+try_from_option_impl!(bool);
+try_from_option_impl!(i64);
+try_from_option_impl!(f64);
+try_from_option_impl!(String);
+// List?
+try_from_option_impl!(NaiveDate);
+try_from_option_impl!(NaiveTime);
+try_from_option_impl!(NaiveDateTime);
+try_from_option_impl!(Duration);
+// Map?
+try_from_option_impl!(Node);
+try_from_option_impl!(Relationship);
+try_from_option_impl!(UnboundRelationship);
+try_from_option_impl!(Path);
 
 /// Representation of a single row returned by database.
 pub struct Record {
